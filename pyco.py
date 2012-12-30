@@ -47,6 +47,7 @@ def asgif(img):
 def asgif_threshold(filename):
   im = img(filename)
   alpha = im.alpha_channel
+  im.background_color = Color(request.query.bg or '#ffffff')
   local_wand.api.library.MagickSetImageAlphaChannel(im.wand, local_wand.image.ALPHA_CHANNEL_TYPES.index('flatten'))
 
   local_wand.api.library.MagickTransparentPaintImage.restype = ctypes.c_bool
@@ -54,7 +55,7 @@ def asgif_threshold(filename):
     ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double, ctypes.c_double, ctypes.c_bool]
 
   pixel = local_wand.api.library.NewPixelWand()
-  local_wand.api.library.PixelSetColor(pixel, request.query.tc)
+  local_wand.api.library.PixelSetColor(pixel, request.query.tc or '#ff00ff')
   local_wand.api.library.MagickTransparentPaintImage(im.wand, pixel, 0.0, 0, False)
   return asgif(im)
 
@@ -90,8 +91,9 @@ img {
 <h2>Settings</h2>
 <form action="/" method="get" enctype="multipart/form-data">
   <ul>
-  <li>Background Color: <input type="color" value="%s" id="bg" name="bg" onchange="document.body.style.backgroundColor=this.value"></li>
-  <li>Transparent Color: <input type="color" value="%s" id="tc" name="tc" onchange="this.form.submit()"></li>
+  <li>Page background Color: <input type="color" value="%s" id="pbg" name="pbg" onchange="document.body.style.backgroundColor=this.value"></li>
+  <li>Image background Color: <input type="color" value="%s" id="bg" name="bg" onchange="this.form.submit()"> (close dialog after changing)</li>
+  <li>Transparent Color: <input type="color" value="%s" id="tc" name="tc" onchange="this.form.submit()"> (close dialog after changing)</li>
   <li>Zoom: <input type="range" name="zoom" step="0.1" min="1.0" max="10.0" value="%s" onchange="rezoom(this.value)"><br />
     Note: "zoom" isn't that useful because Chrome doesn't support CSS image-rendering:pixelated. See
     <a href="https://developer.mozilla.org/en-US/docs/CSS/image-rendering">https://developer.mozilla.org/en-US/docs/CSS/image-rendering</a>.</li>
@@ -122,10 +124,11 @@ function rezoom(ratio) {
     i.style.height = h + 'px';
   }
 }
-document.body.style.backgroundColor = document.getElementById('bg').value;
+document.body.style.backgroundColor = document.getElementById('pbg').value;
 </script>
 """ % (msg,
-       request.query.bg or '#00ffff',
+       request.query.pbg or '#00ffff',
+       request.query.bg or '#ffffff',
        request.query.tc or '#ff00ff',
        request.query.zoom or '1.0',
        lis)
