@@ -23,7 +23,8 @@ def pil_asgif(filename):
   return gif.getvalue()
 
 def img(filename):
-  return Image(filename=os.path.join('images', filename))
+  im = Image(filename=os.path.join('images', filename))
+  return im
 
 @route('/gif/<filename:re:.*\.png>')
 def asgif_auto(filename):
@@ -36,28 +37,35 @@ def remove(filename):
     return show_index('%s removed' % (filename))
   return show_index('%s not found' % (filename))
 
-def asgif(img):
+def asgif(img, posterize=False):
+  if posterize:
+    local_wand.api.library.MagickPosterizeImage(img.wand, 255, False)
   gif = StringIO()
   img.format = 'gif'
   img.save(file=gif)
   response.content_type = 'image/gif'
   return gif.getvalue()
 
-@route('/tgif/<filename:re:.*\.png>')
+@route('/xgif/<filename:re:.*\.png>')
 def asgif_threshold(filename):
   im = img(filename)
-  alpha = im.alpha_channel
-  im.background_color = Color(request.query.bg or '#ffffff')
-  local_wand.api.library.MagickSetImageAlphaChannel(im.wand, local_wand.image.ALPHA_CHANNEL_TYPES.index('flatten'))
+  alpha = im.channel_images[local_wand.image.CHANNELS['alpha']]
+  flatten(im)
+  im.alpha_channel = True
+  return asgif(im, False)
 
-  local_wand.api.library.MagickTransparentPaintImage.restype = ctypes.c_bool
-  local_wand.api.library.MagickTransparentPaintImage.argtypes = [
-    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double, ctypes.c_double, ctypes.c_bool]
-
+@route('/tgif/<filename:re:.*\.png>')
+def asgif_wand(filename):
+  im = flatten(img(filename))
   pixel = local_wand.api.library.NewPixelWand()
   local_wand.api.library.PixelSetColor(pixel, request.query.tc or '#ff00ff')
   local_wand.api.library.MagickTransparentPaintImage(im.wand, pixel, 0.0, 0, False)
-  return asgif(im)
+  return asgif(im, True)
+
+def flatten(im):
+  im.background_color = Color(request.query.bg or '#ffffff')
+  local_wand.api.library.MagickSetImageAlphaChannel(im.wand, local_wand.image.ALPHA_CHANNEL_TYPES.index('flatten'))
+  return im
 
 @route('/upload', method='POST')
 def do_upload():
@@ -94,7 +102,7 @@ img {
   <li>Page background Color: <input type="color" value="%s" id="pbg" name="pbg" onchange="document.body.style.backgroundColor=this.value"></li>
   <li>Image background Color: <input type="color" value="%s" id="bg" name="bg" onchange="this.form.submit()"> (close dialog after changing)</li>
   <li>Transparent Color: <input type="color" value="%s" id="tc" name="tc" onchange="this.form.submit()"> (close dialog after changing)</li>
-  <li>Zoom: <input type="range" name="zoom" step="0.1" min="1.0" max="10.0" value="%s" onchange="rezoom(this.value)"><br />
+  <li>Zoom: <input type="range" id="zoom" name="zoom" step="0.1" min="1.0" max="10.0" value="1.0" onchange="rezoom(this.value)"><br />
     Note: "zoom" isn't that useful because Chrome doesn't support CSS image-rendering:pixelated. See
     <a href="https://developer.mozilla.org/en-US/docs/CSS/image-rendering">https://developer.mozilla.org/en-US/docs/CSS/image-rendering</a>.</li>
   </ul>
@@ -104,7 +112,7 @@ img {
   <input type="file" name="data" />
   <input type="submit" value="Upload" />
 </form>
-<h2>Images - click for 8-bit preview</h2>
+<h2>Images</h2>
 <table>
 <thead><tr><td>PNG</td><td>8-bit (threshold)</td><td>8-bit (flatten)</td><td>file</td></tr></thead>
 <tbody>
@@ -130,7 +138,6 @@ document.body.style.backgroundColor = document.getElementById('pbg').value;
        request.query.pbg or '#00ffff',
        request.query.bg or '#ffffff',
        request.query.tc or '#ff00ff',
-       request.query.zoom or '1.0',
        lis)
 
 @route('/preview/<filename>')
@@ -149,6 +156,17 @@ def refresh_list():
     for img in filenames:
       if img[-4:] == '.png':
         imagelist.append(img)
-  iamgelist = imagelist.sort(key=sortkey)
+  imagelist.sort(key=sortkey)
+
+local_wand.api.library.MagickTransparentPaintImage.restype = ctypes.c_bool
+local_wand.api.library.MagickTransparentPaintImage.argtypes = [
+  ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double, ctypes.c_double, ctypes.c_bool]
+
+local_wand.api.library.MagickPosterizeImage.restype = ctypes.c_bool
+local_wand.api.library.MagickPosterizeImage.argtypes = [
+  ctypes.c_void_p, ctypes.c_size_t, ctypes.c_bool]
+
+local_wand.api.library.GetImageFromMagickWand.restype = ctypes.c_void_p
+local_wand.api.library.GetImageFromMagickWand.argtypes = [ ctypes.c_void_p ]
 
 run(host='localhost', port=8080)
