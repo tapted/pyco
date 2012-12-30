@@ -1,7 +1,9 @@
 from bottle import request, response, route, run, static_file
 import local_pil
 from local_wand.image import Image
-import os, glob, re
+from local_wand.color import Color
+import local_wand.api, local_wand.image, local_wand.color
+import os, glob, re, ctypes
 from cStringIO import StringIO
 
 imagelist=[]
@@ -45,9 +47,15 @@ def asgif(img):
 def asgif_threshold(filename):
   im = img(filename)
   alpha = im.alpha_channel
-  im.alpha_channel = False
-  #img = img.convert('RGB')
-  #img = img.convert('P', palette=Image.ADAPTIVE, colors=255)
+  local_wand.api.library.MagickSetImageAlphaChannel(im.wand, local_wand.image.ALPHA_CHANNEL_TYPES.index('flatten'))
+
+  local_wand.api.library.MagickTransparentPaintImage.restype = ctypes.c_bool
+  local_wand.api.library.MagickTransparentPaintImage.argtypes = [
+    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double, ctypes.c_double, ctypes.c_bool]
+
+  pixel = local_wand.api.library.NewPixelWand()
+  local_wand.api.library.PixelSetColor(pixel, request.query.tc)
+  local_wand.api.library.MagickTransparentPaintImage(im.wand, pixel, 0.0, 0, False)
   return asgif(im)
 
 @route('/upload', method='POST')
@@ -60,16 +68,16 @@ def do_upload():
   f.close()
   return show_index('You uploaded %s (%d bytes).' % (filename, len(raw)))
 
-@route('/', method='GET')
+@route('/')
 def show_index(msg=''):
   refresh_list()
-  lis = '\n'.join([('<tr><td><a href="/preview/{0}" title="Preview">' +
-                      '<img alt="{0}" src="/images/{0}" />' +
+  lis = '\n'.join([('<tr><td><a href="/preview/{0}?{1}" title="Preview">' +
+                      '<img alt="{0}" src="/images/{0}?{1}" />' +
                     '</a></td>'+
-                    '<td><img alt="{0}" src="/gif/{0}" /></td>' +
-                    '<td><img alt="{0}" src="/tgif/{0}" /></td>' +
-                    '<td>{0} <a href="/remove/{0}">remove</a></td>'
-                    '</tr>').format(x)
+                    '<td><img alt="{0}" src="/gif/{0}?{1}" /></td>' +
+                    '<td><img alt="{0}" src="/tgif/{0}?{1}" /></td>' +
+                    '<td>{0} <a href="/remove/{0}?{1}">remove</a></td>'
+                    '</tr>').format(x, request.query_string)
                   for x in imagelist])
   return """
 <style>
@@ -79,22 +87,24 @@ img {
 }
 </style>
 <p>%s</p>
-<form action="/upload" method="post" enctype="multipart/form-data">
 <h2>Settings</h2>
+<form action="/" method="get" enctype="multipart/form-data">
   <ul>
-  <li>Background Color: <input type="color" name="bg" onchange="document.body.style.backgroundColor=this.value"></li>
-  <li>Transparent Color:</li>
-  <li>Zoom: <input type="range" name="zoom" step="0.1" min="1.0" max="4.1" value="1.0" onchange="rezoom(this.value)"><br />
+  <li>Background Color: <input type="color" value="%s" id="bg" name="bg" onchange="document.body.style.backgroundColor=this.value"></li>
+  <li>Transparent Color: <input type="color" value="%s" id="tc" name="tc" onchange="this.form.submit()"></li>
+  <li>Zoom: <input type="range" name="zoom" step="0.1" min="1.0" max="10.0" value="%s" onchange="rezoom(this.value)"><br />
     Note: "zoom" isn't that useful because Chrome doesn't support CSS image-rendering:pixelated. See
     <a href="https://developer.mozilla.org/en-US/docs/CSS/image-rendering">https://developer.mozilla.org/en-US/docs/CSS/image-rendering</a>.</li>
   </ul>
+</form>
 <h2>Add a new file</h2>
+<form action="/upload" method="post" enctype="multipart/form-data">
   <input type="file" name="data" />
   <input type="submit" value="Upload" />
 </form>
 <h2>Images - click for 8-bit preview</h2>
 <table>
-<thead><tr><td>PNG</td><td>8-bit (auto)</td><td>8-bit (manual)</td><td>file</td></tr></thead>
+<thead><tr><td>PNG</td><td>8-bit (threshold)</td><td>8-bit (flatten)</td><td>file</td></tr></thead>
 <tbody>
 %s
 </tbody>
@@ -112,8 +122,13 @@ function rezoom(ratio) {
     i.style.height = h + 'px';
   }
 }
+document.body.style.backgroundColor = document.getElementById('bg').value;
 </script>
-""" % (msg, lis)
+""" % (msg,
+       request.query.bg or '#00ffff',
+       request.query.tc or '#ff00ff',
+       request.query.zoom or '1.0',
+       lis)
 
 @route('/preview/<filename>')
 def preview(filename):
